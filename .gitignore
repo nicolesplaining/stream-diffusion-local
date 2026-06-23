@@ -1,0 +1,10 @@
+# Python virtual environment
+.venv/
+
+# Python caches / build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Generated images (keep the .gitkeep placeholders)
+StreamDiffusion/images/outputs/*.png
