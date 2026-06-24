@@ -35,9 +35,14 @@ from utils.wrapper import StreamDiffusionWrapper
 
 def parse_args():
     p = argparse.ArgumentParser(description="Real-time webcam img2img with StreamDiffusion")
-    p.add_argument("--model", default="KBlueLeaf/kohaku-v2.1", help="HF model id or local path")
-    p.add_argument("--prompt", default="a beautiful watercolor painting, vibrant colors, masterpiece")
-    p.add_argument("--negative-prompt", default="low quality, bad quality, blurry, low resolution")
+    p.add_argument("--model", default="SG161222/Realistic_Vision_V5.1_noVAE",
+                   help="HF model id or local path (default: photorealistic SD1.5)")
+    p.add_argument("--prompt",
+                   default="RAW photo, photorealistic portrait, natural skin texture, "
+                           "35mm photograph, soft natural lighting, highly detailed, sharp focus")
+    p.add_argument("--negative-prompt",
+                   default="anime, illustration, cartoon, drawing, painting, cgi, 3d render, "
+                           "low quality, bad quality, blurry, deformed, disfigured")
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
     p.add_argument("--camera", type=int, default=0, help="webcam device index (/dev/videoN)")
