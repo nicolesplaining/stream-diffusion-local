@@ -1,0 +1,5 @@
+base: "./configs/base_config.yaml"
+third_party_dict:
+  dreambooth: null
+num_inference_steps: 50
+t_index_list: [31, 43]

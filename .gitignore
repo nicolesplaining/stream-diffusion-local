@@ -1,5 +1,5 @@
-# Python virtual environment
-.venv/
+# Python virtual environments
+.venv*/
 
 # Python caches / build artifacts
 __pycache__/
@@ -11,3 +11,12 @@ StreamDiffusion/images/outputs/*.png
 
 # TensorRT engines + intermediate ONNX (large, machine-specific, regenerable)
 StreamDiffusion/engines/
+
+# --- Live2Diff (vendored) large / generated artifacts ---
+# model weights (~12GB: SD1.5, live2diff.ckpt, MiDaS depth)
+Live2Diff/models/
+# TensorRT engines + ONNX (~11GB, machine-specific, regenerable)
+Live2Diff/engines*/
+# generated outputs
+Live2Diff/outputs/
+Live2Diff/out*.png
