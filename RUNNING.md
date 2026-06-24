@@ -120,11 +120,16 @@ First use builds engines into `StreamDiffusion/engines/<model>/<config>/` (ONNX
 export + TRT build, ~1-2 min the first time per model/batch/mode); afterwards the
 cached engines load in seconds. Engines are gitignored (large, machine-specific).
 
-Measured (img2img, Realistic Vision, 512x512, t_index=[32,45]):
-**PyTorch ~11.5 FPS -> TensorRT ~14.7 FPS** (~1.3x). The gain grows with more
-denoising steps (where the UNet dominates); at only 2 steps the VAE + overhead is
-a large fraction. On this memory-bandwidth-bound box (~270 GB/s) don't expect the
-2-4x that discrete GPUs see.
+Measured (img2img, Realistic Vision, 512x512):
+- 3-step, no accel (old default): **8.6 FPS**
+- 2-step + TensorRT: **14.7 FPS**
+- **1-step + TensorRT: 22.4 FPS** ← fastest, genuinely real-time
+
+Fastest recipe: `--t-index 40 --acceleration tensorrt` (1 denoising step). 1 step
+stays closer to the real frame (less stylized) — good for live webcam. The gain
+comes from fewer UNet forwards + TRT; on this bandwidth-bound box (~270 GB/s) don't
+expect the 2-4x per-step that discrete GPUs see, but step-count scales throughput
+near-linearly.
 
 ### What had to be patched (all in `src/streamdiffusion/acceleration/tensorrt/`)
 TensorRT 11.1 (the only TRT for CUDA 13/aarch64) changed a lot vs the TRT-9 code:
