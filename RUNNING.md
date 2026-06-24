@@ -146,6 +146,31 @@ TensorRT 11.1 (the only TRT for CUDA 13/aarch64) changed a lot vs the TRT-9 code
   - `export_onnx` pinned to the legacy exporter (`dynamo=False`); the torch 2.12
     default dynamo exporter path is not used.
 
+## Live2Diff (temporally-coherent v2v)
+
+A second, vendored pipeline (`Live2Diff/`) for **temporally-coherent** real-time
+webcam video-to-video — smoother frame-to-frame than StreamDiffusion (no flicker),
+but slower. Runs in its **own venv** `.venv-live2diff` (torch 2.12+cu130 with the
+original pinned `diffusers==0.25.0`). Full reconstitution recipe: **`Live2Diff/SETUP.md`**.
+
+Quick use (env already set up on this Spark):
+```bash
+source .venv-live2diff/bin/activate
+cd Live2Diff
+python live2diff_trt.py        # build TRT engines + benchmark (engines cached after 1st run)
+```
+
+Measured (this Spark): 1.74 FPS (4-step @512, no accel) -> **9.38 FPS** (2-step @384 +
+TensorRT), a 5.4x speedup. 1-step is not possible (kv-cache window needs >=2 steps).
+
+Its TensorRT path was ported to TRT 11.1 the same way as StreamDiffusion's
+(raw-TRT build, strongly-typed network, `cuda.bindings.runtime`, `get_tensor_name`,
+`dynamo=False`) in `Live2Diff/live2diff/acceleration/tensorrt/utilities.py`. The
+stateful kv-cache 3D UNet exports to ONNX cleanly (kv-cache passed as explicit named
+I/O). Weights (~12GB) and engines (~11GB) are gitignored — see SETUP.md to recreate.
+
+vs StreamDiffusion: ~22 FPS (1-step + TRT) but flickers; Live2Diff ~9 FPS but coherent.
+
 ## Notes / gotchas
 
 - **`--acceleration none`** is required for now. `xformers` has no aarch64/cu130
