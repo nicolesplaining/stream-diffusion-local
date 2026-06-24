@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live2Diff — Live Webcam (temporally coherent)</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family:system-ui,sans-serif; background:#0d0f14; color:#e7e9ee;
+    display:flex; flex-direction:column; align-items:center; padding:24px; }
+  h1 { font-size:20px; font-weight:600; margin:0 0 4px; }
+  .sub { color:#9aa3b2; font-size:13px; margin-bottom:16px; }
+  .views { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
+  .view { position:relative; }
+  .view canvas, .view img { width:384px; height:384px; max-width:90vw; max-height:90vw;
+    border-radius:12px; background:#1a1d26; object-fit:cover; display:block; }
+  .tag { position:absolute; top:10px; left:10px; background:rgba(0,0,0,.55);
+    padding:3px 9px; border-radius:6px; font-size:12px; letter-spacing:.5px; }
+  .fps { position:absolute; top:10px; right:10px; background:rgba(0,0,0,.55);
+    padding:3px 9px; border-radius:6px; font-size:12px; color:#7CFC9B; }
+  .controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+    margin-top:18px; width:100%; max-width:800px; justify-content:center; }
+  input[type=text], button { font-size:15px; padding:10px 12px; border-radius:8px;
+    border:1px solid #2a2f3a; background:#161a22; color:#e7e9ee; }
+  input[type=text] { flex:1 1 420px; min-width:240px; }
+  button { cursor:pointer; background:#2563eb; border-color:#2563eb; font-weight:600; }
+  button.stop { background:#b91c1c; border-color:#b91c1c; }
+  #status { margin-top:12px; font-size:13px; color:#9aa3b2; min-height:18px; }
+</style>
+</head>
+<body>
+  <h1>Live2Diff — Real-time Webcam (temporally coherent)</h1>
+  <div class="sub">~9 FPS · TensorRT · 384×384 · smooth frame-to-frame (no flicker)</div>
+
+  <div class="views">
+    <div class="view"><span class="tag">INPUT</span><canvas id="in" width="384" height="384"></canvas></div>
+    <div class="view"><span class="tag">OUTPUT</span><span class="fps" id="fps">– FPS</span><img id="out" alt="output"/></div>
+  </div>
+
+  <div class="controls">
+    <input type="text" id="prompt" placeholder="Prompt (e.g. oil painting portrait, dramatic lighting)" />
+    <button id="toggle">Start</button>
+  </div>
+  <div id="status">Click “Start” and allow camera access. First ~8 frames warm up the model.</div>
+
+  <video id="cam" autoplay playsinline muted style="display:none"></video>
+
+<script>
+const video=document.getElementById('cam'), inCanvas=document.getElementById('in'),
+  inCtx=inCanvas.getContext('2d'), outImg=document.getElementById('out'),
+  promptEl=document.getElementById('prompt'), toggleBtn=document.getElementById('toggle'),
+  statusEl=document.getElementById('status'), fpsEl=document.getElementById('fps');
+let ws=null, running=false, inFlight=false, stream=null, lastT=performance.now(), fps=0;
+
+function capture(){
+  const vw=video.videoWidth, vh=video.videoHeight;
+  if(!vw||!vh) return false;
+  const side=Math.min(vw,vh), sx=(vw-side)/2, sy=(vh-side)/2;
+  inCtx.save(); inCtx.translate(inCanvas.width,0); inCtx.scale(-1,1);
+  inCtx.drawImage(video,sx,sy,side,side,0,0,inCanvas.width,inCanvas.height); inCtx.restore();
+  return true;
+}
+function sendFrame(){
+  if(!running||inFlight||!ws||ws.readyState!==1) return;
+  if(!capture()){ requestAnimationFrame(sendFrame); return; }
+  inFlight=true;
+  ws.send(JSON.stringify({image:inCanvas.toDataURL('image/jpeg',0.8), prompt:promptEl.value}));
+}
+function connect(){
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen=()=>{ statusEl.textContent='Connected.'; sendFrame(); };
+  ws.onclose=()=>{ if(running) statusEl.textContent='Disconnected.'; };
+  ws.onmessage=(ev)=>{
+    const m=JSON.parse(ev.data);
+    if(m.type==='status'){ statusEl.textContent=m.message; if(running) sendFrame(); return; }
+    if(m.type==='frame'){
+      outImg.src=m.image;
+      const now=performance.now(), dt=now-lastT; lastT=now;
+      if(dt>0) fps=0.85*fps+0.15*(1000/dt); fpsEl.textContent=fps.toFixed(1)+' FPS';
+      inFlight=false; if(running) sendFrame();
+    }
+  };
+}
+async function start(){
+  try{ stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480},audio:false}); }
+  catch(e){ statusEl.textContent='Camera error: '+e.message; return; }
+  video.srcObject=stream; await video.play();
+  running=true; inFlight=false; toggleBtn.textContent='Stop'; toggleBtn.classList.add('stop');
+  connect();
+}
+function stop(){ running=false; toggleBtn.textContent='Start'; toggleBtn.classList.remove('stop');
+  statusEl.textContent='Stopped.'; if(ws) ws.close(); if(stream) stream.getTracks().forEach(t=>t.stop()); }
+toggleBtn.onclick=()=> running?stop():start();
+</script>
+</body>
+</html>
