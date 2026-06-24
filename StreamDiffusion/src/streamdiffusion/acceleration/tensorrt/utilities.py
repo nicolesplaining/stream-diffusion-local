@@ -27,19 +27,9 @@ import onnx
 import onnx_graphsurgeon as gs
 import tensorrt as trt
 import torch
-from cuda import cudart
+from cuda.bindings import runtime as cudart
 from PIL import Image
 from polygraphy import cuda
-from polygraphy.backend.common import bytes_from_path
-from polygraphy.backend.trt import (
-    CreateConfig,
-    Profile,
-    engine_from_bytes,
-    engine_from_network,
-    network_from_onnx_path,
-    save_engine,
-)
-from polygraphy.backend.trt import util as trt_util
 
 from .models import CLIP, VAE, BaseModel, UNet, VAEEncoder
 
@@ -211,32 +201,46 @@ class Engine:
         timing_cache=None,
         workspace_size=0,
     ):
+        # Raw TensorRT build path. Bypasses polygraphy, whose high-level
+        # CreateConfig/engine_from_network wrappers are incompatible with the
+        # bleeding-edge TensorRT 11.x (CUDA 13 / Blackwell) bindings.
         print(f"Building TensorRT engine for {onnx_path}: {self.engine_path}")
-        p = Profile()
+        builder = trt.Builder(TRT_LOGGER)
+        # TensorRT 11 uses strongly-typed networks: compute precision is taken
+        # from the ONNX graph's own dtypes (the model is exported in fp16), so
+        # there is no longer a BuilderFlag.FP16 to set.
+        network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
+        parser = trt.OnnxParser(network, TRT_LOGGER)
+        if hasattr(trt.OnnxParserFlag, "NATIVE_INSTANCENORM"):
+            parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
+        if not parser.parse_from_file(onnx_path):
+            errors = "\n".join(str(parser.get_error(i)) for i in range(parser.num_errors))
+            raise RuntimeError(f"Failed to parse ONNX file {onnx_path}:\n{errors}")
+
+        config = builder.create_builder_config()
+        if workspace_size > 0:
+            config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_size)
+        if enable_refit:
+            config.set_flag(trt.BuilderFlag.REFIT)
+
         if input_profile:
+            profile = builder.create_optimization_profile()
             for name, dims in input_profile.items():
                 assert len(dims) == 3
-                p.add(name, min=dims[0], opt=dims[1], max=dims[2])
+                profile.set_shape(name, min=dims[0], opt=dims[1], max=dims[2])
+            config.add_optimization_profile(profile)
 
-        config_kwargs = {}
-
-        if workspace_size > 0:
-            config_kwargs["memory_pool_limits"] = {trt.MemoryPoolType.WORKSPACE: workspace_size}
-        if not enable_all_tactics:
-            config_kwargs["tactic_sources"] = []
-
-        engine = engine_from_network(
-            network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
-            config=CreateConfig(
-                fp16=fp16, refittable=enable_refit, profiles=[p], load_timing_cache=timing_cache, **config_kwargs
-            ),
-            save_timing_cache=timing_cache,
-        )
-        save_engine(engine, path=self.engine_path)
+        serialized = builder.build_serialized_network(network, config)
+        if serialized is None:
+            raise RuntimeError(f"Failed to build TensorRT engine for {onnx_path}")
+        with open(self.engine_path, "wb") as f:
+            f.write(serialized)
 
     def load(self):
         print(f"Loading TensorRT engine: {self.engine_path}")
-        self.engine = engine_from_bytes(bytes_from_path(self.engine_path))
+        self._runtime = trt.Runtime(TRT_LOGGER)
+        with open(self.engine_path, "rb") as f:
+            self.engine = self._runtime.deserialize_cuda_engine(f.read())
 
     def activate(self, reuse_device_memory=None):
         if reuse_device_memory:
@@ -246,17 +250,18 @@ class Engine:
             self.context = self.engine.create_execution_context()
 
     def allocate_buffers(self, shape_dict=None, device="cuda"):
-        for idx in range(trt_util.get_bindings_per_profile(self.engine)):
-            binding = self.engine[idx]
-            if shape_dict and binding in shape_dict:
-                shape = shape_dict[binding]
+        # TensorRT 10+ named-tensor API (the binding-index API was removed).
+        for idx in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(idx)
+            if shape_dict and name in shape_dict:
+                shape = shape_dict[name]
             else:
-                shape = self.engine.get_binding_shape(binding)
-            dtype = trt.nptype(self.engine.get_binding_dtype(binding))
-            if self.engine.binding_is_input(binding):
-                self.context.set_binding_shape(idx, shape)
+                shape = self.engine.get_tensor_shape(name)
+            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                self.context.set_input_shape(name, shape)
             tensor = torch.empty(tuple(shape), dtype=numpy_to_torch_dtype_dict[dtype]).to(device=device)
-            self.tensors[binding] = tensor
+            self.tensors[name] = tensor
 
     def infer(self, feed_dict, stream, use_cuda_graph=False):
         for name, buf in feed_dict.items():
@@ -423,6 +428,7 @@ def export_onnx(
             input_names=model_data.get_input_names(),
             output_names=model_data.get_output_names(),
             dynamic_axes=model_data.get_dynamic_axes(),
+            dynamo=False,
         )
     del model
     gc.collect()

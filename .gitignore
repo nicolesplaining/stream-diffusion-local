@@ -8,3 +8,6 @@ __pycache__/
 
 # Generated images (keep the .gitkeep placeholders)
 StreamDiffusion/images/outputs/*.png
+
+# TensorRT engines + intermediate ONNX (large, machine-specific, regenerable)
+StreamDiffusion/engines/

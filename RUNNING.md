@@ -72,6 +72,75 @@ webcam image), `--t-index 0,16,32,45` (more steps = more stylized), `--camera N`
 
 Measured ~8.6 FPS @ 512x512 with the default 3-step config (acceleration=none).
 
+## Web app (browser, prompt + style picker)
+
+`StreamDiffusion/web/server.py` — a FastAPI + WebSocket app. Browser captures the
+webcam, the server runs img2img and streams frames back. The page has a **prompt
+textbox** and a **style dropdown where each style is a different model**.
+
+```bash
+source .venv/bin/activate
+cd StreamDiffusion
+python web/server.py
+# open http://localhost:8000 in a browser ON THE SPARK, click Start, allow camera
+```
+
+- Styles (each = one model), defined in `STYLES` at the top of `web/server.py`:
+  Photorealistic (Realistic Vision 5.1), Hyperreal (Absolute Reality 1.81),
+  Dreamy/Fantasy (Dreamshaper 8), Anime (kohaku-v2.1). Add more by appending entries.
+- Models load on demand on first selection (download + warmup, slow once), then
+  cached in memory — switching back is instant.
+- The user prompt is combined with the style's built-in suffix; the style also
+  sets the negative prompt.
+- ~8.6 FPS over the WebSocket (JPEG+base64 round trip included).
+- **Webcam needs localhost or HTTPS** — open it on the Spark's own browser at
+  `http://localhost:8000`. From another machine, getUserMedia is blocked on plain
+  http; use an SSH tunnel (`ssh -L 8000:localhost:8000 spark`) and open localhost.
+- Override defaults via env: `SD_WIDTH`, `SD_HEIGHT`, `SD_T_INDEX` (e.g. "32,45"),
+  `SD_ACCELERATION`.
+
+## TensorRT acceleration (working on Blackwell/CUDA 13)
+
+The repo's TensorRT path was 2023-era (TRT 9 API) and needed porting to run on
+this box. It now works. Install the TRT stack and use `acceleration="tensorrt"`:
+
+```bash
+uv pip install tensorrt onnx onnxruntime polygraphy onnx-graphsurgeon cuda-python onnxscript
+```
+
+Then any entry point accepts TRT, e.g.:
+
+```bash
+python webcam_img2img.py --acceleration tensorrt          # desktop app
+SD_ACCELERATION=tensorrt python web/server.py             # web app
+python trt_build_test.py                                  # standalone build + benchmark
+```
+
+First use builds engines into `StreamDiffusion/engines/<model>/<config>/` (ONNX
+export + TRT build, ~1-2 min the first time per model/batch/mode); afterwards the
+cached engines load in seconds. Engines are gitignored (large, machine-specific).
+
+Measured (img2img, Realistic Vision, 512x512, t_index=[32,45]):
+**PyTorch ~11.5 FPS -> TensorRT ~14.7 FPS** (~1.3x). The gain grows with more
+denoising steps (where the UNet dominates); at only 2 steps the VAE + overhead is
+a large fraction. On this memory-bandwidth-bound box (~270 GB/s) don't expect the
+2-4x that discrete GPUs see.
+
+### What had to be patched (all in `src/streamdiffusion/acceleration/tensorrt/`)
+TensorRT 11.1 (the only TRT for CUDA 13/aarch64) changed a lot vs the TRT-9 code:
+- `engine.py`: 3 moved diffusers Output import paths (`models.unets.*`, `models.autoencoders.*`).
+- `utilities.py`:
+  - `from cuda import cudart` -> `from cuda.bindings import runtime as cudart` (cuda-python 13).
+  - `Engine.build`/`load` rewritten to use **raw TensorRT** — polygraphy 0.50.3 is
+    incompatible with TRT 11.1 (its `CreateConfig` errors on the FP16 flag).
+  - TRT 11 has **no `BuilderFlag.FP16`** — precision now comes from a
+    **strongly-typed network** built from the fp16 ONNX (`NetworkDefinitionCreationFlag.STRONGLY_TYPED`).
+  - `Engine.allocate_buffers` rewritten for the TRT 10+ named-tensor API
+    (the binding-index API — `get_bindings_per_profile`, `engine[idx]`,
+    `get_binding_shape`, `binding_is_input`, `set_binding_shape` — was removed).
+  - `export_onnx` pinned to the legacy exporter (`dynamo=False`); the torch 2.12
+    default dynamo exporter path is not used.
+
 ## Notes / gotchas
 
 - **`--acceleration none`** is required for now. `xformers` has no aarch64/cu130
