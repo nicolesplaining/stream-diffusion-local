@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>DGX Spark Demo</title>
+<style>
+:root{
+  color-scheme: dark;
+  --bg:#070708; --panel:#101013; --line:rgba(255,255,255,.07);
+  --text:#ECECEE; --muted:rgba(255,255,255,.42);
+  --accent:#7C8CFF; --live:#46E0A0;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased; letter-spacing:.01em;
+  display:flex; flex-direction:column; min-height:100%;
+  background-image:radial-gradient(1200px 600px at 50% -10%, rgba(124,140,255,.10), transparent 70%);
+}
+header{
+  display:flex; align-items:center; gap:10px;
+  padding:22px 26px; font-size:13px; color:var(--muted);
+}
+header .mark{width:9px;height:9px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 14px var(--accent);}
+header b{color:var(--text); font-weight:600; letter-spacing:.04em}
+main{
+  flex:1; display:flex; align-items:center; justify-content:center;
+  padding:8px 26px 140px;
+}
+.stage{
+  display:flex; gap:22px; flex-wrap:wrap;
+  align-items:center; justify-content:center; width:100%; max-width:1240px;
+}
+.tile{
+  position:relative; flex:0 1 540px; max-width:540px; width:100%;
+  aspect-ratio:1/1; border-radius:22px; overflow:hidden;
+  background:var(--panel); border:1px solid var(--line);
+  box-shadow:0 24px 60px -24px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.tile canvas,.tile img{
+  width:100%; height:100%; object-fit:cover; display:block;
+  opacity:0; transition:opacity .5s ease;
+}
+.tile canvas{opacity:1}
+.tile img.on{opacity:1}
+.badge{
+  position:absolute; left:14px; bottom:14px; z-index:2;
+  font-size:11px; font-weight:500; letter-spacing:.09em; text-transform:uppercase;
+  color:rgba(255,255,255,.82); padding:6px 11px; border-radius:999px;
+  background:rgba(8,8,10,.42); backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.08);
+}
+.fps{
+  position:absolute; right:14px; top:14px; z-index:2;
+  font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:rgba(255,255,255,.55); padding:5px 9px; border-radius:999px;
+  background:rgba(8,8,10,.38); backdrop-filter:blur(14px);
+}
+.ph{
+  position:absolute; inset:0; z-index:1; display:flex; gap:12px;
+  align-items:center; justify-content:center; flex-direction:column;
+  color:var(--muted); font-size:13px;
+}
+.spin{width:26px;height:26px;border-radius:50%;
+  border:2px solid rgba(255,255,255,.14); border-top-color:var(--accent);
+  animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.dock{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+  z-index:10; display:flex; align-items:center; gap:6px;
+  padding:7px 7px 7px 18px; width:min(640px,calc(100% - 40px));
+  background:rgba(16,16,20,.66); backdrop-filter:blur(26px) saturate(1.4);
+  border:1px solid rgba(255,255,255,.10); border-radius:999px;
+  box-shadow:0 20px 50px -16px rgba(0,0,0,.7);
+}
+.dock .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);
+  flex:none; transition:background .3s, box-shadow .3s}
+.dock .dot.live{background:var(--live); box-shadow:0 0 12px var(--live)}
+.dock .dot.wait{background:#E8B341; box-shadow:0 0 12px #E8B341}
+#prompt{
+  flex:1; min-width:0; background:transparent; border:0; outline:0;
+  color:var(--text); font-size:15px; padding:8px 6px;
+}
+#prompt::placeholder{color:var(--muted)}
+#toggle{
+  flex:none; width:46px; height:46px; border-radius:50%; border:0; cursor:pointer;
+  background:var(--accent); color:#0b0b12; display:grid; place-items:center;
+  transition:transform .15s ease, background .2s ease;
+}
+#toggle:hover{transform:scale(1.05)}
+#toggle:active{transform:scale(.96)}
+#toggle.playing{background:#FF5A5A; color:#1a0b0b}
+#toggle svg{width:18px;height:18px;display:none;fill:currentColor}
+#toggle .i-play{display:block; margin-left:2px}
+#toggle.playing .i-play{display:none}
+#toggle.playing .i-stop{display:block}
+#hint{position:fixed; left:50%; bottom:82px; transform:translateX(-50%);
+  z-index:9; font-size:12px; color:var(--muted); text-align:center;
+  width:100%; pointer-events:none}
+@media (max-width:560px){ header{padding:18px} main{padding-bottom:150px} }
+</style></head>
+<body>
+<header><span class="mark"></span><b>DGX Spark Demo</b><span id="model"></span></header>
+
+<main><div class="stage" id="stage"></div></main>
+
+<div id="hint"></div>
+<div class="dock">
+  <span class="dot" id="dot"></span>
+  <input type="text" id="prompt" placeholder="Describe a transformation…" />
+  <button id="toggle" aria-label="Start">
+    <svg class="i-play" viewBox="0 0 24 24"><polygon points="7,5 19,12 7,19"/></svg>
+    <svg class="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
+  </button>
+</div>
+
+<video id="cam" autoplay playsinline muted style="display:none"></video>
+<script>
+const stage=document.getElementById('stage');
+const promptEl=document.getElementById('prompt');
+const toggleBtn=document.getElementById('toggle');
+const dot=document.getElementById('dot');
+const hint=document.getElementById('hint');
+const modelEl=document.getElementById('model');
+const video=document.getElementById('cam');
+let ws=null,running=false,inFlight=false,stream=null,inCtx=null;
+let lastT=performance.now(),gridFps=0;
+const imgEls={},fpsEls={},phEls={};
+
+function setState(s){ dot.className='dot'+(s?' '+s:''); }
+
+async function build(){
+  const tiles=await (await fetch('/tiles')).json();
+  const outs=tiles.filter(t=>t.key!=='input');
+  const disp=t=>t.key==='input'?t.label:'Output';
+  for(const t of tiles){
+    const el=document.createElement('div'); el.className='tile';
+    if(t.key==='input'){
+      el.innerHTML='<canvas id="in" width="512" height="512"></canvas>'+
+                   '<div class="badge">'+disp(t)+'</div>';
+    }else{
+      el.innerHTML='<img id="img-'+t.key+'" alt="'+t.label+'"/>'+
+                   '<div class="ph" id="ph-'+t.key+'"><div class="spin"></div></div>'+
+                   '<div class="badge">'+disp(t)+'</div>'+
+                   '<div class="fps" id="fps-'+t.key+'"></div>';
+    }
+    stage.appendChild(el);
+  }
+  inCtx=document.getElementById('in').getContext('2d');
+  for(const t of tiles){
+    if(t.key==='input')continue;
+    imgEls[t.key]=document.getElementById('img-'+t.key);
+    fpsEls[t.key]=document.getElementById('fps-'+t.key);
+    phEls[t.key]=document.getElementById('ph-'+t.key);
+  }
+}
+
+function captureSquare(){
+  const vw=video.videoWidth,vh=video.videoHeight;
+  if(!vw||!vh)return false;
+  const side=Math.min(vw,vh),sx=(vw-side)/2,sy=(vh-side)/2,c=inCtx.canvas;
+  inCtx.save();inCtx.translate(c.width,0);inCtx.scale(-1,1);
+  inCtx.drawImage(video,sx,sy,side,side,0,0,c.width,c.height);
+  inCtx.restore();return true;
+}
+function previewLoop(){ if(!running)return; captureSquare(); requestAnimationFrame(previewLoop); }
+function trySend(){
+  if(!running||inFlight||!ws||ws.readyState!==1)return;
+  if(!inCtx.canvas.width)return;
+  inFlight=true;
+  ws.send(JSON.stringify({image:inCtx.canvas.toDataURL('image/jpeg',0.8),prompt:promptEl.value}));
+}
+
+function connect(){
+  ws=new WebSocket('ws://'+location.host+'/ws');
+  ws.onopen=()=>{ setState('live'); hint.style.opacity=0; trySend(); };
+  ws.onclose=()=>{ if(running) setState('wait'); };
+  ws.onmessage=(ev)=>{
+    const msg=JSON.parse(ev.data);
+    if(msg.type!=='frames')return;
+    for(const key in msg.tiles){
+      const d=msg.tiles[key],img=imgEls[key],fps=fpsEls[key],ph=phEls[key];
+      if(!img)continue;
+      if(d.image){ img.src=d.image; img.classList.add('on'); if(ph)ph.style.display='none';
+        if(d.ms&&d.ms>0&&fps) fps.textContent=(1000/d.ms).toFixed(0)+' fps'; }
+      else if(ph){ ph.style.display='flex'; ph.innerHTML=d.status?('<span>'+d.status+'</span>'):'<div class="spin"></div>'; }
+    }
+    const now=performance.now(),dt=now-lastT;lastT=now;
+    if(dt>0)gridFps=0.85*gridFps+0.15*(1000/dt);
+    inFlight=false; if(running) trySend();
+  };
+}
+
+async function start(){
+  try{ stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480},audio:false}); }
+  catch(e){ hint.textContent='Camera unavailable: '+e.message; return; }
+  video.srcObject=stream; await video.play();
+  running=true; inFlight=false;
+  toggleBtn.classList.add('playing'); toggleBtn.setAttribute('aria-label','Stop');
+  setState('wait'); previewLoop(); connect();
+}
+function stop(){
+  running=false;
+  toggleBtn.classList.remove('playing'); toggleBtn.setAttribute('aria-label','Start');
+  setState(''); hint.style.opacity=1; hint.textContent='Paused';
+  if(ws)ws.close(); if(stream)stream.getTracks().forEach(t=>t.stop());
+}
+toggleBtn.onclick=()=>running?stop():start();
+build();
+</script>
+</body></html>
