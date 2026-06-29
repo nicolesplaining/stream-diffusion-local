@@ -20,3 +20,4 @@ Live2Diff/engines*/
 # generated outputs
 Live2Diff/outputs/
 Live2Diff/out*.png
+StreamDiffusion/images/outputs/*.jpg

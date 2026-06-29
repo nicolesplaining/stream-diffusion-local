@@ -1,0 +1,25 @@
+[Unit]
+Description=StreamDiffusion live webcam demo (Realistic Vision, 1-step TensorRT, :8000)
+After=network-online.target
+Wants=network-online.target
+# Single GB10 GPU: never run alongside the RL booth. Starting this stops the booth.
+Conflicts=booth-demo.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/sp9/stream-diffusion-local/StreamDiffusion
+# optimal real-time config: 1-step denoising + TensorRT acceleration @ 512x512
+Environment=SD_ACCELERATION=tensorrt
+Environment=SD_T_INDEX=40
+Environment=SD_WIDTH=512
+Environment=SD_HEIGHT=512
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/sp9/stream-diffusion-local/.venv/bin/python web/server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=0
+
+# NOTE: intentionally NOT enabled for boot. The RL booth is the autostart demo;
+# this one is on-demand via start_diffusion.sh / `systemctl --user start diffusion-demo`.
+[Install]
+WantedBy=default.target
