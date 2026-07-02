@@ -111,7 +111,7 @@ class StyleManager:
                 prompt=style["suffix"],
                 negative_prompt=style["negative"],
                 num_inference_steps=50,
-                guidance_scale=1.2,
+                guidance_scale=1.1,
                 delta=0.5,
             )
             # prime the denoising batch buffer with a neutral gray frame
