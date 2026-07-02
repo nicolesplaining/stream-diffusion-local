@@ -47,6 +47,25 @@ STYLES = {
         "negative": "anime, illustration, cartoon, drawing, painting, cgi, 3d render, "
                     "low quality, blurry, deformed",
     },
+    "hyperreal": {
+        "label": "Hyperreal",
+        "model": "Lykon/absolute-reality-1.81",
+        "suffix": "hyperrealistic photo, ultra detailed, cinematic lighting, sharp focus, 8k",
+        "negative": "anime, cartoon, painting, drawing, low quality, blurry, deformed",
+    },
+    "fantasy": {
+        "label": "Dreamy / Fantasy",
+        "model": "Lykon/dreamshaper-8",
+        "suffix": "fantasy art, dramatic cinematic lighting, highly detailed, vivid colors, "
+                  "concept art, artstation",
+        "negative": "low quality, bad quality, blurry, deformed, watermark, text",
+    },
+    "anime": {
+        "label": "Anime",
+        "model": "KBlueLeaf/kohaku-v2.1",
+        "suffix": "anime, illustration, vibrant colors, clean lines, masterpiece, best quality",
+        "negative": "photo, realistic, 3d render, low quality, bad quality, blurry, deformed",
+    },
 }
 
 WIDTH = int(os.environ.get("SD_WIDTH", 512))

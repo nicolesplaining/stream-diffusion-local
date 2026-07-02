@@ -1,5 +1,5 @@
 [Unit]
-Description=StreamDiffusion live webcam demo (Realistic Vision, 1-step TensorRT, :8000)
+Description=StreamDiffusion live webcam demo (Realistic Vision, 3-step, drastic, :8000)
 After=network-online.target
 Wants=network-online.target
 # Single GB10 GPU: never run alongside the RL booth. Starting this stops the booth.
@@ -9,8 +9,8 @@ Conflicts=booth-demo.service
 Type=simple
 WorkingDirectory=/home/sp9/stream-diffusion-local/StreamDiffusion
 # optimal real-time config: 1-step denoising + TensorRT acceleration @ 512x512
-Environment=SD_ACCELERATION=tensorrt
-Environment=SD_T_INDEX=40
+Environment=SD_ACCELERATION=none
+Environment=SD_T_INDEX=22,32,45
 Environment=SD_WIDTH=512
 Environment=SD_HEIGHT=512
 Environment=PYTHONUNBUFFERED=1
